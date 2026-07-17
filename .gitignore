@@ -18,3 +18,4 @@ frontend/dist/
 # Misc
 .DS_Store
 *.log
+*.tsbuildinfo
