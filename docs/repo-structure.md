@@ -39,9 +39,9 @@ jarvis/
 │       │   ├── scheduler.py    #   APScheduler wiring, manifest-declared cron triggers
 │       │   ├── checkpoint.py   #   LangGraph Postgres checkpointer lifecycle
 │       │   └── tracing.py      #   Langfuse wiring (LiteLLM callback)
-│       ├── tools/              # shared tool implementations (memory now; web/gmail/git later)
+│       ├── tools/              # shared tool implementations (memory, web; gmail/git later)
 │       ├── agents/             # one package per agent, auto-discovered at startup
-│       │   ├── research/       #   (phase 5) manifest + prompts
+│       │   ├── research/       #   web research + summarization + daily job scan
 │       │   ├── personal/       #   (later)
 │       │   └── dev/            #   (later)
 │       ├── db/                 # SQLAlchemy models (runs, run_events, memory, users), session
