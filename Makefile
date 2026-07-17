@@ -1,7 +1,7 @@
 COMPOSE      = docker compose
 COMPOSE_DEV  = $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
 
-.PHONY: prod prod-home dev down logs ps secrets
+.PHONY: prod prod-home dev down logs ps secrets backup
 
 ## Production on the VPS (no Ollama)
 prod:
@@ -24,6 +24,10 @@ logs:
 
 ps:
 	$(COMPOSE) ps
+
+## Postgres dumps now; add FULL=1 for volume snapshots too
+backup:
+	./scripts/backup.sh
 
 ## Print fresh values for every secret in .env.example
 secrets:

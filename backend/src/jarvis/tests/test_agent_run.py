@@ -135,6 +135,21 @@ async def test_unknown_agent_rejected():
         pass
 
 
+async def test_agent_as_tool(checkpointer):
+    from jarvis.core.agent import expose_agent_as_tool
+
+    expose_agent_as_tool("test-agent", scopes=("delegation",))
+    set_router(FakeRouter([_response({"role": "assistant", "content": "delegated answer"}, {})]))
+
+    result = await registry.call_tool("ask_test_agent", {"request": "do the thing"})
+    assert result == "delegated answer"
+
+    # The delegated work is a first-class tracked run.
+    async with get_sessionmaker()() as session:
+        runs = list((await session.execute(select(Run))).scalars())
+    assert any(r.trigger == "agent" and r.output_text == "delegated answer" for r in runs)
+
+
 async def test_run_id_is_thread_id(checkpointer):
     """The run id doubles as the LangGraph thread id for checkpointing."""
     router = FakeRouter([_response({"role": "assistant", "content": "ok"}, {})])

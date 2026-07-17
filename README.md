@@ -8,6 +8,10 @@ and repointing DNS.
 
 - [Architecture](docs/architecture.md)
 - [Repo structure & conventions](docs/repo-structure.md)
+- [Deploy & hardening](docs/runbooks/hardening.md)
+- [Migration VPS ↔ home server](docs/runbooks/migration.md)
+- [Adding a new agent](docs/runbooks/adding-an-agent.md)
+- [Backups & restore](docs/runbooks/backup.md)
 
 ## Quick start
 

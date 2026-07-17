@@ -125,3 +125,36 @@ def get_agent(name: str) -> BaseAgent:
 
 def list_agents() -> list[BaseAgent]:
     return list(_agents.values())
+
+
+def expose_agent_as_tool(agent_name: str, *, scopes: tuple[str, ...] = ()) -> None:
+    """Register agent `agent_name` as a callable tool (`ask_<name>`).
+
+    This is the sanctioned way agents use each other: the delegated request
+    runs as a normal tracked run (trigger="agent"), so it shows up in run
+    history with its own events, and the final answer is returned to the
+    calling agent as the tool result.
+    """
+    from jarvis.core import registry  # late import: registry has no agent deps
+    from jarvis.db.models import Run
+    from jarvis.db.session import get_sessionmaker
+
+    agent = get_agent(agent_name)
+
+    async def _delegate(request: str) -> str:
+        from jarvis.core import runner
+
+        run_id = await runner.start_run(agent_name, request, trigger="agent")
+        await runner.wait(run_id)
+        async with get_sessionmaker()() as session:
+            run = await session.get(Run, run_id)
+        if run.status != "succeeded":
+            return f"ERROR: {agent_name} run {run.status}: {run.error or 'no output'}"
+        return run.output_text or "(no output)"
+
+    _delegate.__name__ = f"ask_{agent_name.replace('-', '_')}"
+    _delegate.__doc__ = (
+        f"Delegate a request to the {agent_name} agent ({agent.manifest.description}). "
+        "Give it a complete, self-contained request; it returns a final answer."
+    )
+    registry.tool(_delegate, scopes=scopes)

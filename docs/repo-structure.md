@@ -13,7 +13,10 @@ jarvis/
 ├── docs/
 │   ├── architecture.md         # deliverable 1
 │   ├── repo-structure.md       # this file
-│   └── runbooks/               # (phases 6–9) hardening, migration, backup, adding-an-agent
+│   └── runbooks/               # hardening, migration, adding-an-agent, backup
+│
+├── scripts/
+│   └── backup.sh               # daily pg_dump + weekly volume snapshots (make backup)
 │
 ├── deploy/
 │   ├── caddy/
