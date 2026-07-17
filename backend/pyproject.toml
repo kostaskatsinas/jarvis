@@ -21,6 +21,8 @@ dependencies = [
     "httpx>=0.27",
     "ddgs>=9",
     "trafilatura>=1.12",
+    "pyjwt>=2.8",
+    "argon2-cffi>=23",
 ]
 
 [project.optional-dependencies]

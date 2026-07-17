@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, runSocket, AgentInfo, Message, RunEvent, RunSummary } from "./api";
+import { api, login, logout, runSocket, tryRefresh, AgentInfo, Message, RunEvent, RunSummary } from "./api";
 
 interface ChatItem {
   kind: "user" | "assistant" | "tool" | "status";
@@ -17,7 +17,50 @@ function messageToItems(msg: Message): ChatItem[] {
   return items;
 }
 
+function Login({ onLogin }: { onLogin: () => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      await login(email, password);
+      onLogin();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  return (
+    <form onSubmit={submit} style={styles.loginForm}>
+      <h1 style={{ fontSize: "1.4rem", margin: 0 }}>Jarvis</h1>
+      <input
+        style={styles.loginInput}
+        type="email"
+        placeholder="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        autoFocus
+      />
+      <input
+        style={styles.loginInput}
+        type="password"
+        placeholder="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+      />
+      <button type="submit" style={{ ...styles.sendBtn, padding: "0.6rem" }}>
+        Sign in
+      </button>
+      {error && <div style={{ color: "crimson", fontSize: "0.85rem" }}>{error}</div>}
+    </form>
+  );
+}
+
 export default function App() {
+  // null = still checking the refresh cookie
+  const [authed, setAuthed] = useState<boolean | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -34,15 +77,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    tryRefresh().then(setAuthed);
+  }, []);
+
+  useEffect(() => {
+    if (!authed) return;
     api.agents().then((list) => {
       setAgents(list);
       if (list.length > 0) setSelected((s) => s ?? list[0].name);
     });
-  }, []);
+  }, [authed]);
 
   useEffect(() => {
-    refreshRuns(selected);
-  }, [selected, refreshRuns]);
+    if (authed) refreshRuns(selected);
+  }, [authed, selected, refreshRuns]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -95,10 +143,21 @@ export default function App() {
     setChat(items);
   }
 
+  if (authed === null) return null;
+  if (!authed) return <Login onLogin={() => setAuthed(true)} />;
+
   return (
     <div style={styles.layout}>
       <aside style={styles.sidebar}>
-        <h1 style={{ fontSize: "1.2rem", margin: "0 0 1rem" }}>Jarvis</h1>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <h1 style={{ fontSize: "1.2rem", margin: "0 0 1rem" }}>Jarvis</h1>
+          <button
+            style={{ ...styles.runBtn, width: "auto", opacity: 0.6 }}
+            onClick={() => logout().then(() => setAuthed(false))}
+          >
+            sign out
+          </button>
+        </div>
         {agents.map((a) => (
           <button
             key={a.name}
@@ -173,6 +232,15 @@ export default function App() {
 
 const styles: Record<string, React.CSSProperties> = {
   layout: { display: "flex", height: "100vh", fontFamily: "system-ui", color: "#1a1a1a" },
+  loginForm: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    maxWidth: 320,
+    margin: "6rem auto",
+    fontFamily: "system-ui",
+  },
+  loginInput: { padding: "0.6rem", borderRadius: 6, border: "1px solid #ccc", fontSize: "1rem" },
   sidebar: {
     width: 280,
     borderRight: "1px solid #ddd",

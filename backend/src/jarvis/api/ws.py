@@ -4,6 +4,7 @@ from fastapi import APIRouter, WebSocket
 from sqlalchemy import select
 
 from jarvis.core import runner
+from jarvis.core.security import ACCESS, InvalidToken, decode_token
 from jarvis.db.models import Run, RunEvent
 from jarvis.db.session import get_sessionmaker
 
@@ -14,9 +15,16 @@ router = APIRouter()
 async def run_stream(websocket: WebSocket, run_id: uuid.UUID) -> None:
     """Replay persisted events, then stream live ones until the run finishes.
 
-    Subscribing before the replay means an event can arrive twice at the
-    boundary; clients dedupe trivially and never miss one.
+    Auth: browsers can't set headers on WebSocket, so the access token rides
+    a query parameter — short-lived, and Caddy/uvicorn access logs are our
+    own. Subscribing before the replay means an event can arrive twice at
+    the boundary; clients dedupe trivially and never miss one.
     """
+    try:
+        decode_token(websocket.query_params.get("token", ""), ACCESS)
+    except InvalidToken:
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
     queue = runner.subscribe(run_id)
     try:

@@ -56,6 +56,8 @@ services:
       JARVIS_ENV: ${JARVIS_ENV:-prod}
       JARVIS_DATABASE_URL: postgresql+psycopg://jarvis:${POSTGRES_PASSWORD}@postgres:5432/jarvis
       JARVIS_SECRET_KEY: ${JARVIS_SECRET_KEY}
+      JARVIS_ADMIN_EMAIL: ${JARVIS_ADMIN_EMAIL}
+      JARVIS_ADMIN_PASSWORD: ${JARVIS_ADMIN_PASSWORD}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       # VPS: tailscale IP of the home server; home server: http://ollama:11434
@@ -191,13 +193,15 @@ services:
       retries: 5
 
   # Home server only: docker compose --profile local-llm up -d
-  # Firewall this port to the tailscale interface (see hardening runbook).
+  # Docker-published ports bypass UFW, so the bind address itself must be
+  # private: set OLLAMA_BIND_IP to the home server's Tailscale IP (100.x.y.z).
+  # The 127.0.0.1 default never exposes it beyond the box.
   ollama:
     image: ollama/ollama:latest
     restart: unless-stopped
     profiles: ["local-llm"]
     ports:
-      - "11434:11434"
+      - "${OLLAMA_BIND_IP:-127.0.0.1}:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
 

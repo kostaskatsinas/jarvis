@@ -1,12 +1,13 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
+from jarvis.api.auth import require_user
 from jarvis.db.models import Run, RunEvent
 from jarvis.db.session import get_sessionmaker
 
-router = APIRouter(prefix="/api/runs", tags=["runs"])
+router = APIRouter(prefix="/api/runs", tags=["runs"], dependencies=[Depends(require_user)])
 
 
 def _run_dict(run: Run) -> dict:

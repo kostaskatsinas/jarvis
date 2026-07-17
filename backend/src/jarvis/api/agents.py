@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from jarvis.api.auth import require_user
 from jarvis.core import runner
 from jarvis.core.agent import list_agents
 
-router = APIRouter(prefix="/api/agents", tags=["agents"])
+router = APIRouter(prefix="/api/agents", tags=["agents"], dependencies=[Depends(require_user)])
 
 
 class StartRunRequest(BaseModel):

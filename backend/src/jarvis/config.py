@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     # Auth
     access_token_ttl_minutes: int = 30
     refresh_token_ttl_days: int = 14
+    admin_email: str = ""  # bootstraps the single user on first start
+    admin_password: str = ""
 
     # LLM routing. Aliases (fast / smart / local-bulk) are what agents use;
     # concrete models are env-overridable without touching code.
