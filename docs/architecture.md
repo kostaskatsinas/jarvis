@@ -213,10 +213,11 @@ The whole system is: the repo + one `.env` + named volumes (`postgres_data`,
    workhorse for reasoning-heavy agent steps.
 2. **Tracing: self-hosted Langfuse v3** on the VPS, memory-capped (§7).
 3. **VPS ↔ home tunnel: Tailscale.**
-4. **Email: Gmail.** Remaining sub-decision for the personal-agent phase:
-   app-password IMAP/SMTP (boring, minutes to set up, needs 2FA on the
-   account) vs. the Gmail API via OAuth (needs a Google Cloud project +
-   consent screen). Default plan is app-password IMAP/SMTP unless you object.
+4. **Email: Gmail**, implemented via app-password IMAP (needs 2FA on the
+   account; no Google Cloud project). The personal agent is deliberately
+   **draft-only**: it saves replies into Gmail Drafts and can never send —
+   the human presses Send. Upgrading to the Gmail API/OAuth later only
+   changes `tools/gmail.py`.
 
 Still assumed: single domain with `jarvis.` and `traces.` subdomains at
 Papaki; timezone Europe/Athens for cron schedules.

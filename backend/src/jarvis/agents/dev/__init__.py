@@ -1,0 +1,1 @@
+from jarvis.agents.dev import agent  # noqa: F401  (registers the agent)

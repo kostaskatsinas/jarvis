@@ -65,7 +65,12 @@ services:
       LANGFUSE_HOST: http://langfuse-web:3000
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      GMAIL_ADDRESS: ${GMAIL_ADDRESS:-}
+      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
       TZ: ${TZ:-Europe/Athens}
+    volumes:
+      - files_data:/data/files
+      - workspace_data:/data/workspace
     depends_on:
       postgres:
         condition: service_healthy
@@ -209,6 +214,8 @@ volumes:
   caddy_data:
   caddy_config:
   postgres_data:
+  files_data:
+  workspace_data:
   clickhouse_data:
   clickhouse_logs:
   minio_data:

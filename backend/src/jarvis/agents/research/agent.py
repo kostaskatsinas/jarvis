@@ -1,5 +1,11 @@
 from jarvis.agents.research.prompts import JOB_SCAN_PROMPT, SYSTEM_PROMPT
-from jarvis.core.agent import AgentManifest, BaseAgent, Schedule, register_agent
+from jarvis.core.agent import (
+    AgentManifest,
+    BaseAgent,
+    Schedule,
+    expose_agent_as_tool,
+    register_agent,
+)
 
 research_agent = register_agent(
     BaseAgent(
@@ -14,3 +20,7 @@ research_agent = register_agent(
         )
     )
 )
+
+# Other agents (scope "delegation") can hand research questions off as
+# ask_research(request); each delegation is its own tracked run.
+expose_agent_as_tool("research", scopes=("delegation",))

@@ -29,6 +29,18 @@ class Settings(BaseSettings):
 
     timezone: str = Field("Europe/Athens", validation_alias=AliasChoices("TZ", "JARVIS_TZ"))
 
+    # Personal agent: Gmail over IMAP with an app password (2FA required).
+    gmail_address: str = Field(
+        "", validation_alias=AliasChoices("GMAIL_ADDRESS", "JARVIS_GMAIL_ADDRESS")
+    )
+    gmail_app_password: str = Field(
+        "", validation_alias=AliasChoices("GMAIL_APP_PASSWORD", "JARVIS_GMAIL_APP_PASSWORD")
+    )
+
+    # Sandboxed roots for the files/dev tools (volume mounts in compose).
+    files_root: str = "/data/files"
+    workspace_root: str = "/data/workspace"
+
 
 @lru_cache
 def get_settings() -> Settings:
