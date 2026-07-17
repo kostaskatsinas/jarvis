@@ -16,7 +16,7 @@ flowchart TB
         C[Caddy\nTLS + static frontend + reverse proxy]
         B["jarvis-core (FastAPI)\n- REST + WebSocket\n- JWT auth\n- LangGraph agent runtime\n- APScheduler (cron triggers)\n- LiteLLM Router (lib)"]
         P[(Postgres 16\napp state, LangGraph checkpoints,\nscheduler jobstore, shared memory)]
-        T[Phoenix\nagent tracing UI]
+        T["Langfuse v3\n(web + worker + ClickHouse\n+ Redis + MinIO)"]
     end
 
     subgraph Home["Home server (via Tailscale/WireGuard)"]
@@ -27,7 +27,7 @@ flowchart TB
     C -- "/api, /ws" --> B
     C -- static React build --> U
     B <--> P
-    B -- OTLP traces --> T
+    B -- traces --> T
     B -- "local-first (if reachable)" --> O
     B -- "fallback / paid tier" --> API_LLM
 ```
@@ -43,14 +43,19 @@ rearchitecture.
 
 | Container | Image / basis | Role | RAM (approx) |
 |---|---|---|---|
-| `caddy` | caddy:2 | TLS (Let's Encrypt), serves React build, proxies `/api` + `/ws`, forward-auth-ready | ~30 MB |
-| `jarvis-core` | python:3.12-slim + FastAPI/LangGraph | All agent logic, API, scheduler | 300–600 MB |
-| `postgres` | postgres:16-alpine | Single source of durable truth | 150–300 MB |
-| `phoenix` | arizephoenix/phoenix | LLM tracing UI (see §7 for the Langfuse trade-off) | 400–600 MB |
+| `caddy` | caddy:2 (+ built frontend) | TLS (Let's Encrypt), serves React build, proxies `/api` + `/ws` + traces subdomain | ~30 MB |
+| `backend` | python:3.12-slim + FastAPI/LangGraph | All agent logic, API, scheduler | 300–600 MB |
+| `postgres` | postgres:16-alpine | Single source of durable truth (app DB + Langfuse's relational DB) | 200–400 MB |
+| `langfuse-web` | langfuse/langfuse:3 | Tracing UI (decided over Phoenix — see §7) | ~400 MB |
+| `langfuse-worker` | langfuse/langfuse-worker:3 | Trace ingestion pipeline | ~300 MB |
+| `clickhouse` | clickhouse/clickhouse-server:24.8 | Langfuse trace storage, `mem_limit`-capped | ≤1.5 GB (capped) |
+| `redis` | redis:7-alpine | Langfuse queue only — the app itself still doesn't use it | ~50 MB |
+| `minio` | minio/minio | Langfuse blob storage (S3-compatible) | ~150 MB |
 | `ollama` | ollama/ollama | **Home-server compose profile only** | model-dependent |
 
-Total on the VPS: comfortably under 2 GB, leaving headroom on an 8 GB box and
-survivable on 4 GB.
+Total on the VPS: roughly 3–4 GB under load, which fits the confirmed
+**KVM 2 (2 vCPU / 8 GB / 100 GB NVMe)** with headroom. ClickHouse is the one
+component that will eat whatever it's given, hence the hard memory cap.
 
 The React frontend is **not** a running container in prod: Vite builds static
 assets in a multi-stage Docker build and Caddy serves them. A `docker-compose.dev.yml`
@@ -69,7 +74,7 @@ migrate:
 | Conversation / graph state | LangGraph Postgres checkpointer (`langgraph-checkpoint-postgres`) |
 | Scheduled triggers | APScheduler SQLAlchemy jobstore |
 | Shared cross-agent memory | `memory` table (namespaced key/value + JSONB); pgvector extension reserved for semantic recall later — not in v1 |
-| Traces | Phoenix's own volume |
+| Traces | Langfuse (relational data in shared Postgres, trace events in ClickHouse + MinIO volumes) |
 | TLS certs | Caddy volume |
 
 **Postgres over SQLite**, decided: LangGraph's maintained checkpointer targets
@@ -113,20 +118,22 @@ config-driven model list, fallbacks, and cost tracking, minus ~300 MB and one
 more service to secure. If a non-Python consumer ever needs the routing layer,
 promoting it to the proxy container is a config move.
 
-Routing policy per model alias, e.g.:
+**Hardware reality check (decided specs):** the home server is ~2 vCPU /
+8 GB like the VPS, presumably CPU-only. That supports **3–8B quantized
+models** (llama3.2:3b, qwen2.5:7b-q4, phi-4-mini) at modest speed — good for
+bulk/cheap work (summarization, classification, drafts), not for
+agent-grade reasoning. The routing tiers reflect that:
 
-- `fast` → Ollama (home) → fallback Haiku
-- `smart` → Anthropic Sonnet (no local fallback)
-- `cheap-bulk` → Ollama → fallback GPT-4o-mini
+- `local-bulk` → Ollama small model → fallback Claude Haiku
+- `fast` → Claude Haiku (API)
+- `smart` → Claude Sonnet (API, no local fallback)
 
 Ollama reachability is health-checked with a short timeout; unreachable local
 = silent fallback to API + a logged event, so the system works identically
 when the home server is off.
 
-**VPS → home-server connectivity: Tailscale** (WireGuard mesh). The client is
-open source; the coordination server is not — if that violates your FOSS
-constraint, **headscale** (self-hosted, MIT) is the drop-in control plane, or
-plain WireGuard since it's only two peers. Flagging rather than deciding.
+**VPS → home-server connectivity: Tailscale** (decided). Ollama's port is
+reachable only over the tailnet interface, never the public internet.
 
 ## 6. Access & security
 
@@ -142,30 +149,35 @@ plain WireGuard since it's only two peers. Flagging rather than deciding.
 - WebSocket auth via the same JWT (token on connect).
 - Secrets: `.env` (git-ignored) referenced from compose; a `.env.example` is
   committed. Docker secrets are an option but add ceremony without a swarm.
-- Phoenix/tracing UI is **not** exposed publicly — bound to localhost /
-  Tailscale only, or behind Caddy `basic_auth`+IP allowlist (it has weak
-  native auth; don't put it on the open internet).
+- Langfuse UI at `traces.<domain>` relies on Langfuse's native auth
+  (email/password, signup disabled after the bootstrapped admin user). Its
+  Postgres/ClickHouse/Redis/MinIO backends are never exposed outside the
+  compose network.
 - Hardening checklist (delivered with exact commands in deliverable 6): UFW
   (22/80/443 only), SSH key-only + no root login, fail2ban on sshd, Caddy
   rate limiting on `/api/auth/*`, unattended-upgrades, Docker socket never
   mounted into any container.
 
-## 7. Observability — one flagged problem
+## 7. Observability
 
 - **Structured logs:** `structlog` → JSON to stdout → `docker logs` /
   `docker compose logs`. No log shipper in v1 (Loki+Grafana is a later,
   optional add).
-- **Tracing: your prompt suggested self-hosted Langfuse. Flag: Langfuse v3
-  requires ClickHouse + Redis + S3-compatible blob storage — roughly 2–3 GB
-  of RAM and four extra containers.** That's a bad fit for a modest VPS.
-  Options, in order of my preference:
-  1. **Arize Phoenix, self-hosted** — single container, OpenTelemetry-based,
-     first-class LangChain/LangGraph instrumentation, good trace UI. This is
-     what the diagram assumes.
-  2. **Langfuse Cloud free tier** — real Langfuse, zero RAM, but traces leave
-     your box (may conflict with self-hosting goals).
-  3. **Self-hosted Langfuse v3 on the home server only** — fine if the home
-     box has RAM to spare; VPS ships traces to it over Tailscale.
+- **Tracing: self-hosted Langfuse v3** (decided, with the memory cost
+  understood). It brings four extra containers (web, worker, ClickHouse,
+  Redis, MinIO — Postgres is shared with the app). Mitigations so it behaves
+  on an 8 GB box:
+  - ClickHouse runs with a hard `mem_limit` (default 1.5 GB) — single-user
+    trace volume is tiny, so this is generous.
+  - Redis capped at 128 MB (`noeviction`, per Langfuse's requirement).
+  - Langfuse's relational data lives in a second database inside the shared
+    Postgres instance — no second Postgres container.
+  - Trace retention should be pruned periodically (part of the backup/
+    maintenance runbook, deliverable 9).
+  - If memory pressure ever bites, the whole Langfuse block lifts onto the
+    home server unchanged and the backend ships traces over Tailscale.
+  - The tracing UI is exposed at `traces.<domain>` behind Langfuse's own
+    login, with signup disabled after the initial admin user is bootstrapped.
 
 ## 8. Data flow (one agent run, end to end)
 
@@ -174,7 +186,7 @@ plain WireGuard since it's only two peers. Flagging rather than deciding.
    asyncio task with a checkpointer thread id.
 3. Graph nodes call tools from the registry and models via the LiteLLM router
    (local-first where configured, API fallback).
-4. Every step: checkpoint → Postgres; trace span → Phoenix; structured log →
+4. Every step: checkpoint → Postgres; trace span → Langfuse; structured log →
    stdout; streaming tokens/events → WebSocket → dashboard.
 5. Terminal state: run row finalized (status, cost, token counts). Run history
    and full event log are queryable in the dashboard afterwards.
@@ -182,7 +194,8 @@ plain WireGuard since it's only two peers. Flagging rather than deciding.
 ## 9. Portability (VPS ↔ home server)
 
 The whole system is: the repo + one `.env` + named volumes (`postgres_data`,
-`caddy_data`, `phoenix_data`). Migration (full runbook is deliverable 7):
+`caddy_data`, `clickhouse_data`, `minio_data`, `ollama_data`). Migration
+(full runbook is deliverable 7):
 
 1. `docker compose down` on source; `pg_dump` + tar the volumes (also the
    ongoing backup strategy, deliverable 9).
@@ -192,28 +205,18 @@ The whole system is: the repo + one `.env` + named volumes (`postgres_data`,
    enables Ollama on the home server; the VPS runs without it and the router
    falls back to APIs.
 
-## 10. Assumptions (correct me before Phase 2)
+## 10. Decisions confirmed (2026-07-17)
 
-1. **VPS ≈ 2 vCPU / 8 GB RAM / 100 GB disk** (typical Hostinger KVM 2). The
-   architecture survives 4 GB; below that, tracing gets cut first.
-2. **Home server can run Ollama usefully** (≥16 GB RAM or a GPU for 7–14B
-   models). Specs unknown — placeholder in your prompt.
-3. **Tailscale (or headscale/WireGuard) is acceptable** for VPS↔home
-   connectivity. Without a tunnel, "VPS calls home Ollama" needs port
-   forwarding + TLS + auth on your home IP — I'd advise against.
-4. Single domain with subdomains, e.g. `jarvis.example.com` (app) and traces
-   kept private (not public DNS).
-5. Email for the personal-automation agent is IMAP/SMTP-reachable (Gmail via
-   app password or OAuth — provider affects tool design in Phase 4+).
-6. Timezone Europe/Athens for cron schedules.
+1. **VPS: Hostinger KVM 2 — 2 vCPU / 8 GB / 100 GB NVMe / 8 TB bandwidth.
+   Home server: approximately the same.** Consequence: local models are
+   limited to small quantized ones (see §5); the paid APIs remain the
+   workhorse for reasoning-heavy agent steps.
+2. **Tracing: self-hosted Langfuse v3** on the VPS, memory-capped (§7).
+3. **VPS ↔ home tunnel: Tailscale.**
+4. **Email: Gmail.** Remaining sub-decision for the personal-agent phase:
+   app-password IMAP/SMTP (boring, minutes to set up, needs 2FA on the
+   account) vs. the Gmail API via OAuth (needs a Google Cloud project +
+   consent screen). Default plan is app-password IMAP/SMTP unless you object.
 
-## Open questions
-
-1. Actual VPS and home-server specs (the two [FILL IN]s)?
-2. Tracing: Phoenix on the VPS (lean, my recommendation), Langfuse Cloud, or
-   full Langfuse v3 on the home server?
-3. Tailscale OK, or strict-FOSS (headscale / plain WireGuard)?
-4. Email provider for the personal agent (Gmail / other)?
-
-**Next phase on your approval:** repo structure (deliverable 2) and
-`docker-compose.yml` (deliverable 3).
+Still assumed: single domain with `jarvis.` and `traces.` subdomains at
+Papaki; timezone Europe/Athens for cron schedules.
