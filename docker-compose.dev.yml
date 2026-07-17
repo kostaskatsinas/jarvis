@@ -1,0 +1,27 @@
+# Dev override. Use via the Makefile:  make dev
+# Runs backend with hot reload + the Vite dev server; Caddy/TLS not needed
+# (browse http://localhost:5173, Vite proxies /api and /ws to the backend).
+services:
+  backend:
+    environment:
+      JARVIS_ENV: dev
+    command: sh -c "alembic upgrade head && exec uvicorn jarvis.main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - ./backend/src:/app/src
+    ports:
+      - "8000:8000"
+
+  postgres:
+    ports:
+      - "5432:5432"
+
+  frontend-dev:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host"
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
