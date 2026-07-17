@@ -23,26 +23,29 @@ jarvis/
 │       └── init-langfuse.sh    # creates Langfuse's DB in the shared instance
 │
 ├── backend/
-│   ├── Dockerfile
+│   ├── Dockerfile              # runs `alembic upgrade head` before uvicorn
 │   ├── pyproject.toml          # src layout, hatchling; deps grow per phase
+│   ├── alembic.ini / alembic/  # migrations (URL from JARVIS_DATABASE_URL)
 │   └── src/jarvis/
-│       ├── main.py             # app factory, structlog setup, /api/health
+│       ├── main.py             # app factory, structlog setup, lifespan wiring
 │       ├── config.py           # pydantic-settings, env-prefixed JARVIS_*
-│       ├── api/                # (phase 4+) routers: auth, agents, runs, websocket
-│       ├── core/               # (phase 4) the shared framework — THE important package
-│       │   ├── agent.py        #   BaseAgent scaffold (LangGraph graph builder)
-│       │   ├── registry.py     #   tool registry + agent-as-tool
+│       ├── api/                # routers: agents, runs, websocket (auth arrives phase 6)
+│       ├── core/               # the shared framework — THE important package
+│       │   ├── agent.py        #   AgentManifest + BaseAgent (LangGraph tool-loop scaffold)
+│       │   ├── registry.py     #   global tool registry (@tool decorator, scopes)
 │       │   ├── memory.py       #   namespaced shared memory over Postgres
-│       │   ├── llm.py          #   LiteLLM Router: aliases, local-first, fallbacks
+│       │   ├── llm.py          #   LiteLLM Router: fast/smart/local-bulk aliases, fallbacks
+│       │   ├── runner.py       #   run lifecycle: DB rows, events, WS pubsub
 │       │   ├── scheduler.py    #   APScheduler wiring, manifest-declared cron triggers
-│       │   └── tracing.py      #   Langfuse instrumentation helpers
-│       ├── tools/              # (phase 4+) shared tool implementations (web, gmail, files, git)
-│       ├── agents/             # (phase 5+) one package per agent
-│       │   ├── research/       #   graph.py + manifest.py + agent-specific prompts
-│       │   ├── personal/
-│       │   └── dev/
-│       ├── db/                 # (phase 4) SQLAlchemy models, session, alembic migrations
-│       └── tests/
+│       │   ├── checkpoint.py   #   LangGraph Postgres checkpointer lifecycle
+│       │   └── tracing.py      #   Langfuse wiring (LiteLLM callback)
+│       ├── tools/              # shared tool implementations (memory now; web/gmail/git later)
+│       ├── agents/             # one package per agent, auto-discovered at startup
+│       │   ├── research/       #   (phase 5) manifest + prompts
+│       │   ├── personal/       #   (later)
+│       │   └── dev/            #   (later)
+│       ├── db/                 # SQLAlchemy models (runs, run_events, memory, users), session
+│       └── tests/              # sqlite-backed framework tests with a fake LLM router
 │
 └── frontend/
     ├── package.json            # React 18 + Vite 5 + TypeScript

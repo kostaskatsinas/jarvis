@@ -72,7 +72,7 @@ migrate:
 | Agent registry metadata | code-defined (declarative), mirrored to DB for the dashboard |
 | Run history, messages, logs per run | `runs`, `run_events` tables |
 | Conversation / graph state | LangGraph Postgres checkpointer (`langgraph-checkpoint-postgres`) |
-| Scheduled triggers | APScheduler SQLAlchemy jobstore |
+| Scheduled triggers | declared in agent manifests (code), idempotently re-registered with APScheduler at startup — no persisted jobstore to drift |
 | Shared cross-agent memory | `memory` table (namespaced key/value + JSONB); pgvector extension reserved for semantic recall later — not in v1 |
 | Traces | Langfuse (relational data in shared Postgres, trace events in ClickHouse + MinIO volumes) |
 | TLS certs | Caddy volume |

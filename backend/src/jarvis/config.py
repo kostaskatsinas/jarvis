@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +14,18 @@ class Settings(BaseSettings):
     # Auth
     access_token_ttl_minutes: int = 30
     refresh_token_ttl_days: int = 14
+
+    # LLM routing. Aliases (fast / smart / local-bulk) are what agents use;
+    # concrete models are env-overridable without touching code.
+    model_fast: str = "anthropic/claude-haiku-4-5"
+    model_smart: str = "anthropic/claude-sonnet-5"
+    model_local: str = "qwen2.5:7b"  # served by Ollama, only used when reachable
+    ollama_base_url: str = Field(
+        "", validation_alias=AliasChoices("OLLAMA_BASE_URL", "JARVIS_OLLAMA_BASE_URL")
+    )
+    ollama_timeout_seconds: int = 120
+
+    timezone: str = Field("Europe/Athens", validation_alias=AliasChoices("TZ", "JARVIS_TZ"))
 
 
 @lru_cache
